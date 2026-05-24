@@ -23,12 +23,33 @@ export type RunMode = 'single' | 'sequence'
 const PAUSE_DURATION = 10
 const EXERCISES = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const
 
+/** Default seconds per exercise; override per-number in UI. */
+export const DEFAULT_EXERCISE_DURATIONS: Record<number, Duration> = {
+  1: 30,
+  2: 15,
+  3: 15,
+  4: 15,
+  5: 15,
+  6: 60,
+  7: 15,
+  8: 15,
+  9: 60,
+}
+
+function durationForExercise(
+  map: Record<number, Duration>,
+  n: number,
+): Duration {
+  return map[n] ?? 30
+}
+
 /** Holds per segment before rest / next exercise */
 const REPEATS_FOR_EXERCISE: Partial<Record<number, number>> = {
-  2: 2,
-  3: 2,
-  4: 2,
-  7: 2,
+  2: 4,
+  3: 4,
+  4: 4,
+  5: 4,
+  7: 4,
   8: 4,
 }
 
@@ -36,16 +57,20 @@ function repeatsForExercise(n: number): number {
   return REPEATS_FOR_EXERCISE[n] ?? 1
 }
 
-export function useExerciseTimer(duration: Duration, autoPause: boolean) {
+export function useExerciseTimer(
+  exerciseDurations: Record<number, Duration>,
+  autoPause: boolean,
+) {
   const [phase, setPhase] = useState<Phase>('idle')
   const [currentExercise, setCurrentExercise] = useState<number | null>(null)
   const [runMode, setRunMode] = useState<RunMode>('single')
   const [remainingSec, setRemainingSec] = useState(0)
   const [isPreparing, setIsPreparing] = useState(false)
   const [timerPaused, setTimerPaused] = useState(false)
+  const [repeatAudioPlaying, setRepeatAudioPlaying] = useState(false)
 
   const sessionRef = useRef(0)
-  const durationRef = useRef(duration)
+  const exerciseDurationsRef = useRef(exerciseDurations)
   const autoPauseRef = useRef(autoPause)
   const holdsLeftInSegmentRef = useRef(1)
   const timerPausedRef = useRef(timerPaused)
@@ -55,10 +80,10 @@ export function useExerciseTimer(duration: Duration, autoPause: boolean) {
   const completionLockPauseRef = useRef(false)
 
   useLayoutEffect(() => {
-    durationRef.current = duration
+    exerciseDurationsRef.current = exerciseDurations
     autoPauseRef.current = autoPause
     timerPausedRef.current = timerPaused
-  }, [duration, autoPause, timerPaused])
+  }, [exerciseDurations, autoPause, timerPaused])
 
   const stop = useCallback(() => {
     void releaseScreenWakeLock()
@@ -70,6 +95,7 @@ export function useExerciseTimer(duration: Duration, autoPause: boolean) {
     setRemainingSec(0)
     setIsPreparing(false)
     setTimerPaused(false)
+    setRepeatAudioPlaying(false)
     holdsLeftInSegmentRef.current = 1
   }, [])
 
@@ -93,7 +119,7 @@ export function useExerciseTimer(duration: Duration, autoPause: boolean) {
       if (session !== sessionRef.current) return
 
       setIsPreparing(false)
-      setRemainingSec(durationRef.current)
+      setRemainingSec(durationForExercise(exerciseDurationsRef.current, n))
     },
     [],
   )
@@ -150,7 +176,13 @@ export function useExerciseTimer(duration: Duration, autoPause: boolean) {
   }, [beginExercise])
 
   useEffect(() => {
-    if (phase === 'idle' || isPreparing || remainingSec <= 0 || timerPaused)
+    if (
+      phase === 'idle' ||
+      isPreparing ||
+      remainingSec <= 0 ||
+      timerPaused ||
+      repeatAudioPlaying
+    )
       return
 
     const timer = window.setTimeout(() => {
@@ -158,7 +190,7 @@ export function useExerciseTimer(duration: Duration, autoPause: boolean) {
     }, 1000)
 
     return () => window.clearTimeout(timer)
-  }, [phase, isPreparing, remainingSec, timerPaused])
+  }, [phase, isPreparing, remainingSec, timerPaused, repeatAudioPlaying])
 
   useEffect(() => {
     if (
@@ -181,7 +213,12 @@ export function useExerciseTimer(duration: Duration, autoPause: boolean) {
 
     void (async () => {
       if (holdsLeftNow > 0) {
-        await playSequential([REPEAT_SOUND])
+        setRepeatAudioPlaying(true)
+        try {
+          await playSequential([REPEAT_SOUND])
+        } finally {
+          setRepeatAudioPlaying(false)
+        }
         completionLockExerciseRef.current = false
         if (
           session !== sessionRef.current ||
@@ -189,7 +226,9 @@ export function useExerciseTimer(duration: Duration, autoPause: boolean) {
         ) {
           return
         }
-        setRemainingSec(durationRef.current)
+        setRemainingSec(
+          durationForExercise(exerciseDurationsRef.current, n),
+        )
         return
       }
 
@@ -232,9 +271,11 @@ export function useExerciseTimer(duration: Duration, autoPause: boolean) {
   return {
     phase,
     currentExercise,
+    runMode,
     remainingSec,
     isPreparing,
     timerPaused,
+    repeatAudioPlaying,
     exercises: EXERCISES,
     startSingle,
     startSequence,
@@ -242,4 +283,15 @@ export function useExerciseTimer(duration: Duration, autoPause: boolean) {
     togglePause,
     isActive: phase !== 'idle',
   }
+}
+
+export function modalPreviewExercise(
+  phase: Phase,
+  runMode: RunMode,
+  currentExercise: number | null,
+): number | null {
+  if (currentExercise === null) return null
+  if (phase === 'pause' && runMode === 'sequence' && currentExercise < 9)
+    return currentExercise + 1
+  return currentExercise
 }

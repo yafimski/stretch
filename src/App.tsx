@@ -1,31 +1,70 @@
 import { useState } from 'react'
 import { exerciseImage } from './publicAudio'
-import { useExerciseTimer, type Duration } from './useExerciseTimer'
+import {
+  DEFAULT_EXERCISE_DURATIONS,
+  modalPreviewExercise,
+  useExerciseTimer,
+  type Duration,
+  type Phase,
+} from './useExerciseTimer'
 import { useScreenWakeLock } from './useScreenWakeLock'
 import './App.css'
 
 const DURATIONS: Duration[] = [15, 30, 60]
 
+function modalSecondsLabel(
+  phase: Phase,
+  isPreparing: boolean,
+  remainingSec: number,
+  currentExercise: number | null,
+  exerciseDurations: Record<number, Duration>,
+): number {
+  if (currentExercise === null) return remainingSec
+
+  const holdSecs = exerciseDurations[currentExercise] ?? 30
+
+  if (phase === 'pause') return remainingSec
+  if (phase === 'exercise' && isPreparing) return holdSecs
+  if (phase === 'exercise' && !isPreparing && remainingSec > 0)
+    return remainingSec
+  if (phase === 'exercise' && !isPreparing) return holdSecs
+  return remainingSec
+}
+
+function phaseLabel(phase: Phase, isPreparing: boolean): string {
+  if (phase === 'pause') return 'Rest'
+  if (isPreparing) return 'Starting'
+  return 'Hold'
+}
+
 function App() {
-  const [duration, setDuration] = useState<Duration>(30)
+  const [exerciseDurations, setExerciseDurations] = useState<
+    Record<number, Duration>
+  >(() => ({ ...DEFAULT_EXERCISE_DURATIONS }))
   const [autoPause, setAutoPause] = useState(true)
 
   const {
     phase,
+    runMode,
     currentExercise,
     remainingSec,
     isPreparing,
     timerPaused,
+    repeatAudioPlaying,
     exercises,
     startSingle,
     startSequence,
     stop,
     togglePause,
     isActive,
-  } = useExerciseTimer(duration, autoPause)
+  } = useExerciseTimer(exerciseDurations, autoPause)
 
   const showTimerControls =
-    !isPreparing && (phase === 'exercise' || phase === 'pause')
+    !isPreparing &&
+    !repeatAudioPlaying &&
+    (phase === 'exercise' || phase === 'pause')
+
+  const previewNum = modalPreviewExercise(phase, runMode, currentExercise)
 
   useScreenWakeLock(isActive)
 
@@ -44,39 +83,41 @@ function App() {
 
       <section className="grid" aria-label="Exercises">
         {exercises.map((n) => (
-          <button
-            key={n}
-            type="button"
-            className="grid-card"
-            onClick={() => startSingle(n)}
-            aria-label={`Exercise ${n}`}
-          >
-            <img src={exerciseImage(n)} alt={`Exercise ${n}`} />
-          </button>
+          <div key={n} className="grid-card">
+            <button
+              type="button"
+              className="grid-card-main"
+              onClick={() => startSingle(n)}
+              aria-label={`Exercise ${n}`}
+            >
+              <img src={exerciseImage(n)} alt={`Exercise ${n}`} />
+            </button>
+            <div
+              className="grid-card-durations"
+              role="radiogroup"
+              aria-label={`Hold duration for exercise ${n}`}
+            >
+              {DURATIONS.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={`duration-btn${exerciseDurations[n] === value ? ' duration-btn-active' : ''}`}
+                  role="radio"
+                  aria-checked={exerciseDurations[n] === value}
+                  onClick={() =>
+                    setExerciseDurations((prev) => ({ ...prev, [n]: value }))
+                  }
+                  disabled={isActive}
+                >
+                  {value}s
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </section>
 
       <section className="settings" aria-label="Settings">
-        <div
-          className="duration-picker"
-          role="radiogroup"
-          aria-label="Hold duration"
-        >
-          {DURATIONS.map((value) => (
-            <button
-              key={value}
-              type="button"
-              className={`duration-btn${duration === value ? ' duration-btn-active' : ''}`}
-              role="radio"
-              aria-checked={duration === value}
-              onClick={() => setDuration(value)}
-              disabled={isActive}
-            >
-              {value}s
-            </button>
-          ))}
-        </div>
-
         <label className={`auto-pause${autoPause ? ' auto-pause-on' : ''}`}>
           <span className="auto-pause-text">
             <span className="auto-pause-title">Auto pause</span>
@@ -95,7 +136,7 @@ function App() {
         </label>
       </section>
 
-      {isActive && currentExercise !== null && (
+      {isActive && currentExercise !== null && previewNum !== null && (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal">
             <button
@@ -142,14 +183,21 @@ function App() {
             ) : null}
 
             <p className="modal-countdown">
-              {phase === 'pause' ? 'Rest' : isPreparing ? 'Starting' : 'Hold'} ·{' '}
-              {phase === 'pause' || !isPreparing ? remainingSec : duration}s
+              {phaseLabel(phase, isPreparing)} ·{' '}
+              {modalSecondsLabel(
+                phase,
+                isPreparing,
+                remainingSec,
+                currentExercise,
+                exerciseDurations,
+              )}
+              s
             </p>
 
             <div className="modal-image-wrap">
               <img
-                src={exerciseImage(currentExercise)}
-                alt={`Exercise ${currentExercise}`}
+                src={exerciseImage(previewNum)}
+                alt={`Exercise ${previewNum}`}
                 className="modal-image"
               />
             </div>
