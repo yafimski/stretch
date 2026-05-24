@@ -1,0 +1,56 @@
+:root {
+  font-family: 'Segoe UI', system-ui, Roboto, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  --color-bg: #e8f0ee;
+  --color-bg-accent: linear-gradient(
+    165deg,
+    #dbece8 0%,
+    #e5eef2 48%,
+    #e8e6f4 100%
+  );
+  --color-surface: #fbfcfb;
+  --color-surface-elevated: #ffffff;
+  --color-text: #1b2e2a;
+  --color-text-muted: #5a726c;
+  --color-border: rgba(27, 46, 42, 0.12);
+  --color-accent: #0f766e;
+  --color-accent-hover: #025952;
+  --color-accent-soft: rgba(15, 118, 110, 0.12);
+  --color-accent-glow: rgba(13, 148, 136, 0.35);
+  --color-ring: #2dd4bf;
+  color: var(--color-text);
+  background: var(--color-bg-accent);
+  background-color: var(--color-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--color-bg-accent);
+  background-color: var(--color-bg);
+  min-height: 100svh;
+}
+
+#root {
+  min-height: 100svh;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
