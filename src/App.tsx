@@ -148,6 +148,10 @@ function App() {
               ×
             </button>
 
+            {phase === 'pause' ? (
+              <h2 className="modal-coming-up">Coming Up...</h2>
+            ) : null}
+
             {showTimerControls ? (
               <button
                 type="button"

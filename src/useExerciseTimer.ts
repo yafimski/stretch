@@ -8,6 +8,7 @@ import {
 import {
   CHIME_SOUND,
   REPEAT_SOUND,
+  REST_SOUND,
   exerciseStartSound,
   playSequential,
 } from './publicAudio'
@@ -132,6 +133,7 @@ export function useExerciseTimer(
       if (autoPauseRef.current) {
         setPhase('pause')
         setRemainingSec(PAUSE_DURATION)
+        void playSequential([REST_SOUND])
         return
       }
 

@@ -349,6 +349,16 @@
   background: rgba(240, 253, 252, 0.22);
 }
 
+.modal-coming-up {
+  margin: 0;
+  padding: 3rem 2.75rem 0;
+  text-align: center;
+  color: #f0fdfa;
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
 .modal-countdown {
   margin: 0;
   padding-top: 0.25rem;

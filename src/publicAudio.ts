@@ -55,3 +55,4 @@ export function exerciseStartSound(n: number): string {
 
 export const CHIME_SOUND = '/chime.mp3'
 export const REPEAT_SOUND = '/repeat.mp3'
+export const REST_SOUND = '/rest.mp3'
