@@ -1,25 +1,33 @@
 import { useState } from 'react'
 import { exerciseImage } from './publicAudio'
 import { useExerciseTimer, type Duration } from './useExerciseTimer'
+import { useScreenWakeLock } from './useScreenWakeLock'
 import './App.css'
 
 const DURATIONS: Duration[] = [15, 30, 60]
 
 function App() {
   const [duration, setDuration] = useState<Duration>(30)
-  const [autoPause, setAutoPause] = useState(false)
+  const [autoPause, setAutoPause] = useState(true)
 
   const {
     phase,
     currentExercise,
     remainingSec,
     isPreparing,
+    timerPaused,
     exercises,
     startSingle,
     startSequence,
     stop,
+    togglePause,
     isActive,
   } = useExerciseTimer(duration, autoPause)
+
+  const showTimerControls =
+    !isPreparing && (phase === 'exercise' || phase === 'pause')
+
+  useScreenWakeLock(isActive)
 
   return (
     <div className="app">
@@ -98,6 +106,40 @@ function App() {
             >
               ×
             </button>
+
+            {showTimerControls ? (
+              <button
+                type="button"
+                className="modal-play-pause"
+                onClick={togglePause}
+                aria-label={timerPaused ? 'Resume timer' : 'Pause timer'}
+                title={timerPaused ? 'Resume' : 'Pause'}
+              >
+                {timerPaused ? (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="26"
+                    height="26"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden
+                  >
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="26"
+                    height="26"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden
+                  >
+                    <path d="M6 5h4v14H6V5zm8 0h4v14h-4V5z" />
+                  </svg>
+                )}
+              </button>
+            ) : null}
 
             <p className="modal-countdown">
               {phase === 'pause' ? 'Rest' : isPreparing ? 'Starting' : 'Hold'} ·{' '}
