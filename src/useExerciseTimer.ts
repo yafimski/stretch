@@ -22,18 +22,20 @@ export type Phase = 'idle' | 'exercise' | 'pause'
 export type RunMode = 'single' | 'sequence'
 
 const PAUSE_DURATION = 10
+/** Min seconds between repeats (between holds of the same exercise). */
+const REPEAT_PAUSE_SEC = 5
 const EXERCISES = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const
 
 /** Default seconds per exercise; override per-number in UI. */
 export const DEFAULT_EXERCISE_DURATIONS: Record<number, Duration> = {
   1: 30,
-  2: 15,
-  3: 15,
-  4: 15,
-  5: 15,
-  6: 60,
-  7: 15,
-  8: 15,
+  2: 30,
+  3: 30,
+  4: 30,
+  5: 30,
+  6: 30,
+  7: 30,
+  8: 30,
   9: 60,
 }
 
@@ -46,12 +48,12 @@ function durationForExercise(
 
 /** Holds per segment before rest / next exercise */
 const REPEATS_FOR_EXERCISE: Partial<Record<number, number>> = {
-  2: 4,
-  3: 4,
-  4: 4,
-  5: 4,
-  7: 4,
-  8: 4,
+  2: 2,
+  3: 2,
+  4: 2,
+  5: 2,
+  7: 2,
+  8: 2,
 }
 
 function repeatsForExercise(n: number): number {
@@ -217,7 +219,15 @@ export function useExerciseTimer(
       if (holdsLeftNow > 0) {
         setRepeatAudioPlaying(true)
         try {
+          const repeatStarted = Date.now()
           await playSequential([REPEAT_SOUND])
+          const minEndMs = repeatStarted + REPEAT_PAUSE_SEC * 1000
+          const waitMs = minEndMs - Date.now()
+          if (waitMs > 0) {
+            await new Promise<void>((resolve) =>
+              window.setTimeout(resolve, waitMs),
+            )
+          }
         } finally {
           setRepeatAudioPlaying(false)
         }
