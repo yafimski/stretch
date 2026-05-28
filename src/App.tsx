@@ -121,7 +121,7 @@ function App() {
         <label className={`auto-pause${autoPause ? ' auto-pause-on' : ''}`}>
           <span className="auto-pause-text">
             <span className="auto-pause-title">Auto pause</span>
-            <span className="auto-pause-desc">10 second rest between exercises</span>
+            <span className="auto-pause-desc">15 second rest between exercises</span>
           </span>
           <span className="switch">
             <input

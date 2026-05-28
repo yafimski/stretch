@@ -21,7 +21,8 @@ export type Duration = 15 | 30 | 60
 export type Phase = 'idle' | 'exercise' | 'pause'
 export type RunMode = 'single' | 'sequence'
 
-const PAUSE_DURATION = 10
+const PAUSE_DURATION = 15
+const REST_SOUND_TOTAL_SEC = 3
 /** Min seconds between repeats (between holds of the same exercise). */
 const REPEAT_PAUSE_SEC = 5
 const EXERCISES = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const
@@ -36,7 +37,7 @@ export const DEFAULT_EXERCISE_DURATIONS: Record<number, Duration> = {
   6: 30,
   7: 30,
   8: 30,
-  9: 60,
+  9: 30,
 }
 
 function durationForExercise(
@@ -71,6 +72,7 @@ export function useExerciseTimer(
   const [isPreparing, setIsPreparing] = useState(false)
   const [timerPaused, setTimerPaused] = useState(false)
   const [repeatAudioPlaying, setRepeatAudioPlaying] = useState(false)
+  const [soundActive, setSoundActive] = useState(false)
 
   const sessionRef = useRef(0)
   const exerciseDurationsRef = useRef(exerciseDurations)
@@ -99,6 +101,7 @@ export function useExerciseTimer(
     setIsPreparing(false)
     setTimerPaused(false)
     setRepeatAudioPlaying(false)
+    setSoundActive(false)
     holdsLeftInSegmentRef.current = 1
   }, [])
 
@@ -106,8 +109,33 @@ export function useExerciseTimer(
     setTimerPaused((p) => !p)
   }, [])
 
+  const playWithTimerPause = useCallback(
+    async (urls: string[], minDurationSec = 0) => {
+      setSoundActive(true)
+      try {
+        const startedAt = Date.now()
+        await playSequential(urls)
+        const minDurationMs = minDurationSec * 1000
+        const waitMs = minDurationMs - (Date.now() - startedAt)
+        if (waitMs > 0) {
+          await new Promise<void>((resolve) =>
+            window.setTimeout(resolve, waitMs),
+          )
+        }
+      } finally {
+        setSoundActive(false)
+      }
+    },
+    [],
+  )
+
   const beginExercise = useCallback(
-    async (n: number, mode: RunMode, session: number) => {
+    async (
+      n: number,
+      mode: RunMode,
+      session: number,
+      includeExercisePrompt = true,
+    ) => {
       completionLockExerciseRef.current = false
       completionLockPauseRef.current = false
       setRunMode(mode)
@@ -118,24 +146,29 @@ export function useExerciseTimer(
       setTimerPaused(false)
       holdsLeftInSegmentRef.current = repeatsForExercise(n)
 
-      await playSequential([exerciseStartSound(n), CHIME_SOUND])
+      if (includeExercisePrompt) {
+        await playWithTimerPause([exerciseStartSound(n), CHIME_SOUND])
+      } else {
+        await playWithTimerPause([CHIME_SOUND])
+      }
       if (session !== sessionRef.current) return
 
       setIsPreparing(false)
       setRemainingSec(durationForExercise(exerciseDurationsRef.current, n))
     },
-    [],
+    [playWithTimerPause],
   )
 
   const advanceAfterExercise = useCallback(
     async (n: number, mode: RunMode, session: number) => {
-      await playSequential([CHIME_SOUND])
+      await playWithTimerPause([CHIME_SOUND])
       if (session !== sessionRef.current) return
 
       if (autoPauseRef.current) {
+        await playWithTimerPause([REST_SOUND], REST_SOUND_TOTAL_SEC)
+        if (session !== sessionRef.current) return
         setPhase('pause')
         setRemainingSec(PAUSE_DURATION)
-        void playSequential([REST_SOUND])
         return
       }
 
@@ -146,14 +179,14 @@ export function useExerciseTimer(
 
       stop()
     },
-    [beginExercise, stop],
+    [beginExercise, playWithTimerPause, stop],
   )
 
   const advanceAfterPause = useCallback(
     async (n: number, mode: RunMode, session: number) => {
       completionLockExerciseRef.current = false
       if (mode === 'sequence' && n < 9) {
-        await beginExercise(n + 1, mode, session)
+        await beginExercise(n + 1, mode, session, false)
         return
       }
 
@@ -185,7 +218,8 @@ export function useExerciseTimer(
       isPreparing ||
       remainingSec <= 0 ||
       timerPaused ||
-      repeatAudioPlaying
+      repeatAudioPlaying ||
+      soundActive
     )
       return
 
@@ -194,13 +228,21 @@ export function useExerciseTimer(
     }, 1000)
 
     return () => window.clearTimeout(timer)
-  }, [phase, isPreparing, remainingSec, timerPaused, repeatAudioPlaying])
+  }, [
+    phase,
+    isPreparing,
+    remainingSec,
+    timerPaused,
+    repeatAudioPlaying,
+    soundActive,
+  ])
 
   useEffect(() => {
     if (
       phase !== 'exercise' ||
       isPreparing ||
       timerPaused ||
+      soundActive ||
       remainingSec !== 0 ||
       currentExercise === null
     )
@@ -252,13 +294,15 @@ export function useExerciseTimer(
     isPreparing,
     remainingSec,
     timerPaused,
+    soundActive,
     currentExercise,
     runMode,
     advanceAfterExercise,
   ])
 
   useEffect(() => {
-    if (phase !== 'pause' || timerPaused || remainingSec !== 0) return
+    if (phase !== 'pause' || timerPaused || soundActive || remainingSec !== 0)
+      return
     if (currentExercise === null) return
 
     if (completionLockPauseRef.current) return
@@ -274,6 +318,7 @@ export function useExerciseTimer(
   }, [
     phase,
     timerPaused,
+    soundActive,
     remainingSec,
     currentExercise,
     runMode,
