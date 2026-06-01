@@ -2,15 +2,19 @@ import { useState } from 'react'
 import { exerciseImage } from './publicAudio'
 import {
   DEFAULT_EXERCISE_DURATIONS,
+  DEFAULT_EXERCISE_REPEATS,
   modalPreviewExercise,
   useExerciseTimer,
   type Duration,
+  type PauseKind,
   type Phase,
+  type RepeatCount,
 } from './useExerciseTimer'
 import { useScreenWakeLock } from './useScreenWakeLock'
 import './App.css'
 
-const DURATIONS: Duration[] = [15, 30, 60]
+const DURATIONS: Duration[] = [10, 20, 40]
+const REPEAT_COUNTS: RepeatCount[] = [1, 2, 3, 4]
 
 function modalSecondsLabel(
   phase: Phase,
@@ -31,7 +35,12 @@ function modalSecondsLabel(
   return remainingSec
 }
 
-function phaseLabel(phase: Phase, isPreparing: boolean): string {
+function phaseLabel(
+  phase: Phase,
+  isPreparing: boolean,
+  pauseKind: PauseKind,
+): string {
+  if (phase === 'pause' && pauseKind === 'between-repeats') return 'Pause'
   if (phase === 'pause') return 'Rest'
   if (isPreparing) return 'Starting'
   return 'Hold'
@@ -41,6 +50,9 @@ function App() {
   const [exerciseDurations, setExerciseDurations] = useState<
     Record<number, Duration>
   >(() => ({ ...DEFAULT_EXERCISE_DURATIONS }))
+  const [exerciseRepeats, setExerciseRepeats] = useState<
+    Record<number, RepeatCount>
+  >(() => ({ ...DEFAULT_EXERCISE_REPEATS }))
   const [autoPause, setAutoPause] = useState(true)
 
   const {
@@ -51,20 +63,27 @@ function App() {
     isPreparing,
     timerPaused,
     repeatAudioPlaying,
+    pauseKind,
     exercises,
     startSingle,
     startSequence,
     stop,
     togglePause,
     isActive,
-  } = useExerciseTimer(exerciseDurations, autoPause)
+  } = useExerciseTimer(exerciseDurations, exerciseRepeats, autoPause)
 
   const showTimerControls =
     !isPreparing &&
     !repeatAudioPlaying &&
     (phase === 'exercise' || phase === 'pause')
 
-  const previewNum = modalPreviewExercise(phase, runMode, currentExercise)
+  const previewNum = modalPreviewExercise(
+    phase,
+    runMode,
+    currentExercise,
+    exercises.length,
+    pauseKind,
+  )
 
   useScreenWakeLock(isActive)
 
@@ -84,6 +103,22 @@ function App() {
       <section className="grid" aria-label="Exercises">
         {exercises.map((n) => (
           <div key={n} className="grid-card">
+            <button
+              type="button"
+              className="grid-card-repeat-pill"
+              onClick={() =>
+                setExerciseRepeats((prev) => {
+                  const current = prev[n] ?? 1
+                  const idx = REPEAT_COUNTS.indexOf(current)
+                  const next = REPEAT_COUNTS[(idx + 1) % REPEAT_COUNTS.length]
+                  return { ...prev, [n]: next }
+                })
+              }
+              aria-label={`Repeats for exercise ${n}: ${exerciseRepeats[n] ?? 1}. Tap to cycle`}
+              title="Tap to cycle repeats"
+            >
+              {exerciseRepeats[n] ?? 1}x
+            </button>
             <button
               type="button"
               className="grid-card-main"
@@ -148,7 +183,7 @@ function App() {
               ×
             </button>
 
-            {phase === 'pause' ? (
+            {phase === 'pause' && pauseKind === 'between-exercises' ? (
               <h2 className="modal-coming-up">Coming Up...</h2>
             ) : null}
 
@@ -187,7 +222,7 @@ function App() {
             ) : null}
 
             <p className="modal-countdown">
-              {phaseLabel(phase, isPreparing)} ·{' '}
+              {phaseLabel(phase, isPreparing, pauseKind)} ·{' '}
               {modalSecondsLabel(
                 phase,
                 isPreparing,

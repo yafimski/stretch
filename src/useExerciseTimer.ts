@@ -7,6 +7,8 @@ import {
 } from 'react'
 import {
   CHIME_SOUND,
+  EXERCISE_COUNT,
+  EXERCISE_NUMBERS,
   REPEAT_SOUND,
   REST_SOUND,
   exerciseStartSound,
@@ -17,52 +19,46 @@ import {
   releaseScreenWakeLock,
 } from './screenWakeLock'
 
-export type Duration = 15 | 30 | 60
+export type Duration = 10 | 20 | 40
+export type RepeatCount = 1 | 2 | 3 | 4
 export type Phase = 'idle' | 'exercise' | 'pause'
 export type RunMode = 'single' | 'sequence'
+export type PauseKind = 'between-repeats' | 'between-exercises' | null
 
 const PAUSE_DURATION = 15
 const REST_SOUND_TOTAL_SEC = 3
 /** Min seconds between repeats (between holds of the same exercise). */
 const REPEAT_PAUSE_SEC = 5
-const EXERCISES = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const
-
 /** Default seconds per exercise; override per-number in UI. */
-export const DEFAULT_EXERCISE_DURATIONS: Record<number, Duration> = {
-  1: 30,
-  2: 30,
-  3: 30,
-  4: 30,
-  5: 30,
-  6: 30,
-  7: 30,
-  8: 30,
-  9: 30,
-}
+export const DEFAULT_EXERCISE_DURATIONS: Record<number, Duration> =
+  Object.fromEntries(EXERCISE_NUMBERS.map((n) => [n, 20]))
 
 function durationForExercise(
   map: Record<number, Duration>,
   n: number,
 ): Duration {
-  return map[n] ?? 30
+  return map[n] ?? 20
 }
 
-/** Holds per segment before rest / next exercise */
-const REPEATS_FOR_EXERCISE: Partial<Record<number, number>> = {
+/** Default repeat counts per exercise; can be changed from UI. */
+const DEFAULT_REPEAT_OVERRIDES: Partial<Record<number, RepeatCount>> = {
+  1: 2,
   2: 2,
   3: 2,
   4: 2,
-  5: 2,
+  5: 1,
+  6: 2,
   7: 2,
-  8: 2,
 }
 
-function repeatsForExercise(n: number): number {
-  return REPEATS_FOR_EXERCISE[n] ?? 1
-}
+export const DEFAULT_EXERCISE_REPEATS: Record<number, RepeatCount> =
+  Object.fromEntries(
+    EXERCISE_NUMBERS.map((n) => [n, DEFAULT_REPEAT_OVERRIDES[n] ?? 1]),
+  ) as Record<number, RepeatCount>
 
 export function useExerciseTimer(
   exerciseDurations: Record<number, Duration>,
+  exerciseRepeats: Record<number, RepeatCount>,
   autoPause: boolean,
 ) {
   const [phase, setPhase] = useState<Phase>('idle')
@@ -73,11 +69,13 @@ export function useExerciseTimer(
   const [timerPaused, setTimerPaused] = useState(false)
   const [repeatAudioPlaying, setRepeatAudioPlaying] = useState(false)
   const [soundActive, setSoundActive] = useState(false)
+  const [pauseKind, setPauseKind] = useState<PauseKind>(null)
 
   const sessionRef = useRef(0)
   const exerciseDurationsRef = useRef(exerciseDurations)
+  const exerciseRepeatsRef = useRef(exerciseRepeats)
   const autoPauseRef = useRef(autoPause)
-  const holdsLeftInSegmentRef = useRef(1)
+  const completedHoldsInSegmentRef = useRef(0)
   const timerPausedRef = useRef(timerPaused)
 
   /** Prevents Strict Mode / double-invoke from decrementing repeats twice */
@@ -86,9 +84,10 @@ export function useExerciseTimer(
 
   useLayoutEffect(() => {
     exerciseDurationsRef.current = exerciseDurations
+    exerciseRepeatsRef.current = exerciseRepeats
     autoPauseRef.current = autoPause
     timerPausedRef.current = timerPaused
-  }, [exerciseDurations, autoPause, timerPaused])
+  }, [exerciseDurations, exerciseRepeats, autoPause, timerPaused])
 
   const stop = useCallback(() => {
     void releaseScreenWakeLock()
@@ -102,7 +101,8 @@ export function useExerciseTimer(
     setTimerPaused(false)
     setRepeatAudioPlaying(false)
     setSoundActive(false)
-    holdsLeftInSegmentRef.current = 1
+    setPauseKind(null)
+    completedHoldsInSegmentRef.current = 0
   }, [])
 
   const togglePause = useCallback(() => {
@@ -144,7 +144,7 @@ export function useExerciseTimer(
       setIsPreparing(true)
       setRemainingSec(0)
       setTimerPaused(false)
-      holdsLeftInSegmentRef.current = repeatsForExercise(n)
+      completedHoldsInSegmentRef.current = 0
 
       if (includeExercisePrompt) {
         await playWithTimerPause([exerciseStartSound(n), CHIME_SOUND])
@@ -167,12 +167,13 @@ export function useExerciseTimer(
       if (autoPauseRef.current) {
         await playWithTimerPause([REST_SOUND], REST_SOUND_TOTAL_SEC)
         if (session !== sessionRef.current) return
+        setPauseKind('between-exercises')
         setPhase('pause')
         setRemainingSec(PAUSE_DURATION)
         return
       }
 
-      if (mode === 'sequence' && n < 9) {
+      if (mode === 'sequence' && n < EXERCISE_COUNT) {
         await beginExercise(n + 1, mode, session)
         return
       }
@@ -183,9 +184,22 @@ export function useExerciseTimer(
   )
 
   const advanceAfterPause = useCallback(
-    async (n: number, mode: RunMode, session: number) => {
+    async (
+      n: number,
+      mode: RunMode,
+      session: number,
+      currentPauseKind: PauseKind,
+    ) => {
       completionLockExerciseRef.current = false
-      if (mode === 'sequence' && n < 9) {
+      setPauseKind(null)
+
+      if (currentPauseKind === 'between-repeats') {
+        setPhase('exercise')
+        setRemainingSec(durationForExercise(exerciseDurationsRef.current, n))
+        return
+      }
+
+      if (mode === 'sequence' && n < EXERCISE_COUNT) {
         await beginExercise(n + 1, mode, session, false)
         return
       }
@@ -206,6 +220,7 @@ export function useExerciseTimer(
   )
 
   const startSequence = useCallback(() => {
+    if (EXERCISE_COUNT < 1) return
     void acquireScreenWakeLock()
     const session = sessionRef.current + 1
     sessionRef.current = session
@@ -254,22 +269,15 @@ export function useExerciseTimer(
     const session = sessionRef.current
     const n = currentExercise
     const mode = runMode
-    holdsLeftInSegmentRef.current -= 1
-    const holdsLeftNow = holdsLeftInSegmentRef.current
+    completedHoldsInSegmentRef.current += 1
+    const completedHolds = completedHoldsInSegmentRef.current
+    const targetRepeats = exerciseRepeatsRef.current[n] ?? 1
 
     void (async () => {
-      if (holdsLeftNow > 0) {
+      if (completedHolds < targetRepeats) {
         setRepeatAudioPlaying(true)
         try {
-          const repeatStarted = Date.now()
-          await playSequential([REPEAT_SOUND])
-          const minEndMs = repeatStarted + REPEAT_PAUSE_SEC * 1000
-          const waitMs = minEndMs - Date.now()
-          if (waitMs > 0) {
-            await new Promise<void>((resolve) =>
-              window.setTimeout(resolve, waitMs),
-            )
-          }
+          await playWithTimerPause([REPEAT_SOUND])
         } finally {
           setRepeatAudioPlaying(false)
         }
@@ -280,9 +288,9 @@ export function useExerciseTimer(
         ) {
           return
         }
-        setRemainingSec(
-          durationForExercise(exerciseDurationsRef.current, n),
-        )
+        setPauseKind('between-repeats')
+        setPhase('pause')
+        setRemainingSec(REPEAT_PAUSE_SEC)
         return
       }
 
@@ -298,6 +306,7 @@ export function useExerciseTimer(
     currentExercise,
     runMode,
     advanceAfterExercise,
+    playWithTimerPause,
   ])
 
   useEffect(() => {
@@ -311,8 +320,9 @@ export function useExerciseTimer(
     const session = sessionRef.current
     const n = currentExercise
     const mode = runMode
+    const currentPauseKind = pauseKind
 
-    void advanceAfterPause(n, mode, session).finally(() => {
+    void advanceAfterPause(n, mode, session, currentPauseKind).finally(() => {
       completionLockPauseRef.current = false
     })
   }, [
@@ -322,6 +332,7 @@ export function useExerciseTimer(
     remainingSec,
     currentExercise,
     runMode,
+    pauseKind,
     advanceAfterPause,
   ])
 
@@ -333,7 +344,8 @@ export function useExerciseTimer(
     isPreparing,
     timerPaused,
     repeatAudioPlaying,
-    exercises: EXERCISES,
+    pauseKind,
+    exercises: EXERCISE_NUMBERS,
     startSingle,
     startSequence,
     stop,
@@ -346,9 +358,16 @@ export function modalPreviewExercise(
   phase: Phase,
   runMode: RunMode,
   currentExercise: number | null,
+  exerciseCount: number,
+  pauseKind: PauseKind,
 ): number | null {
   if (currentExercise === null) return null
-  if (phase === 'pause' && runMode === 'sequence' && currentExercise < 9)
+  if (
+    phase === 'pause' &&
+    pauseKind === 'between-exercises' &&
+    runMode === 'sequence' &&
+    currentExercise < exerciseCount
+  )
     return currentExercise + 1
   return currentExercise
 }

@@ -45,12 +45,34 @@ export async function playSequential(urls: string[]): Promise<void> {
   }
 }
 
+const exerciseImageModules = import.meta.glob<string>(
+  '../public/png/*',
+  {
+    eager: true,
+    import: 'default',
+  },
+)
+
+const ORDERED_EXERCISE_IMAGES = Object.entries(exerciseImageModules)
+  .sort(([leftPath], [rightPath]) =>
+    leftPath.localeCompare(rightPath, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    }),
+  )
+  .map(([, url]) => url)
+
+export const EXERCISE_NUMBERS = ORDERED_EXERCISE_IMAGES.map(
+  (_, index) => index + 1,
+)
+export const EXERCISE_COUNT = EXERCISE_NUMBERS.length
+
 export function exerciseImage(n: number): string {
-  return `/${n}.png`
+  return ORDERED_EXERCISE_IMAGES[n - 1] ?? ''
 }
 
 export function exerciseStartSound(n: number): string {
-  return `/${n}.mp3`
+  return `/mp3/${n}.mp3`
 }
 
 export const CHIME_SOUND = '/chime.mp3'
