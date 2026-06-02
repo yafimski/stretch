@@ -6,29 +6,24 @@ import {
   useState,
 } from 'react'
 import {
-  CHIME_SOUND,
   EXERCISE_COUNT,
   EXERCISE_NUMBERS,
-  REPEAT_SOUND,
-  REST_SOUND,
-  exerciseStartSound,
   playSequential,
 } from './publicAudio'
+import {
+  buildExerciseTimeline,
+  type RepeatCount,
+  type TimelineStage,
+} from './exerciseTimeline'
 import {
   acquireScreenWakeLock,
   releaseScreenWakeLock,
 } from './screenWakeLock'
 
 export type Duration = 10 | 20 | 40
-export type RepeatCount = 1 | 2 | 3 | 4
-export type Phase = 'idle' | 'exercise' | 'pause'
+export type { RepeatCount } from './exerciseTimeline'
 export type RunMode = 'single' | 'sequence'
-export type PauseKind = 'between-repeats' | 'between-exercises' | null
 
-const PAUSE_DURATION = 15
-const REST_SOUND_TOTAL_SEC = 3
-/** Min seconds between repeats (between holds of the same exercise). */
-const REPEAT_PAUSE_SEC = 5
 /** Default seconds per exercise; override per-number in UI. */
 export const DEFAULT_EXERCISE_DURATIONS: Record<number, Duration> =
   Object.fromEntries(EXERCISE_NUMBERS.map((n) => [n, 20]))
@@ -61,48 +56,62 @@ export function useExerciseTimer(
   exerciseRepeats: Record<number, RepeatCount>,
   autoPause: boolean,
 ) {
-  const [phase, setPhase] = useState<Phase>('idle')
   const [currentExercise, setCurrentExercise] = useState<number | null>(null)
   const [runMode, setRunMode] = useState<RunMode>('single')
+  const [timelineStages, setTimelineStages] = useState<TimelineStage[]>([])
+  const [currentStageIndex, setCurrentStageIndex] = useState(0)
   const [remainingSec, setRemainingSec] = useState(0)
-  const [isPreparing, setIsPreparing] = useState(false)
   const [timerPaused, setTimerPaused] = useState(false)
-  const [repeatAudioPlaying, setRepeatAudioPlaying] = useState(false)
   const [soundActive, setSoundActive] = useState(false)
-  const [pauseKind, setPauseKind] = useState<PauseKind>(null)
 
   const sessionRef = useRef(0)
   const exerciseDurationsRef = useRef(exerciseDurations)
   const exerciseRepeatsRef = useRef(exerciseRepeats)
   const autoPauseRef = useRef(autoPause)
-  const completedHoldsInSegmentRef = useRef(0)
   const timerPausedRef = useRef(timerPaused)
-
-  /** Prevents Strict Mode / double-invoke from decrementing repeats twice */
-  const completionLockExerciseRef = useRef(false)
-  const completionLockPauseRef = useRef(false)
+  const stageEnterLockRef = useRef(false)
+  const stageCompleteLockRef = useRef(false)
+  /** False until remainingSec has been set for the current timed stage. */
+  const timerReadyRef = useRef(false)
+  const timelineStagesRef = useRef<TimelineStage[]>([])
+  const currentStageIndexRef = useRef(0)
+  const runModeRef = useRef<RunMode>('single')
+  const currentExerciseRef = useRef<number | null>(null)
 
   useLayoutEffect(() => {
     exerciseDurationsRef.current = exerciseDurations
     exerciseRepeatsRef.current = exerciseRepeats
     autoPauseRef.current = autoPause
     timerPausedRef.current = timerPaused
-  }, [exerciseDurations, exerciseRepeats, autoPause, timerPaused])
+    timelineStagesRef.current = timelineStages
+    currentStageIndexRef.current = currentStageIndex
+    runModeRef.current = runMode
+    currentExerciseRef.current = currentExercise
+  }, [
+    exerciseDurations,
+    exerciseRepeats,
+    autoPause,
+    timerPaused,
+    timelineStages,
+    currentStageIndex,
+    runMode,
+    currentExercise,
+  ])
+
+  const isActive = currentExercise !== null
 
   const stop = useCallback(() => {
     void releaseScreenWakeLock()
     sessionRef.current += 1
-    completionLockExerciseRef.current = false
-    completionLockPauseRef.current = false
-    setPhase('idle')
+    stageEnterLockRef.current = false
+    stageCompleteLockRef.current = false
+    timerReadyRef.current = false
     setCurrentExercise(null)
+    setTimelineStages([])
+    setCurrentStageIndex(0)
     setRemainingSec(0)
-    setIsPreparing(false)
     setTimerPaused(false)
-    setRepeatAudioPlaying(false)
     setSoundActive(false)
-    setPauseKind(null)
-    completedHoldsInSegmentRef.current = 0
   }, [])
 
   const togglePause = useCallback(() => {
@@ -111,10 +120,14 @@ export function useExerciseTimer(
 
   const playWithTimerPause = useCallback(
     async (urls: string[], minDurationSec = 0) => {
+      if (urls.length === 0 && minDurationSec <= 0) return
+
       setSoundActive(true)
       try {
         const startedAt = Date.now()
-        await playSequential(urls)
+        if (urls.length > 0) {
+          await playSequential(urls)
+        }
         const minDurationMs = minDurationSec * 1000
         const waitMs = minDurationMs - (Date.now() - startedAt)
         if (waitMs > 0) {
@@ -129,94 +142,67 @@ export function useExerciseTimer(
     [],
   )
 
-  const beginExercise = useCallback(
-    async (
-      n: number,
-      mode: RunMode,
-      session: number,
-      includeExercisePrompt = true,
-    ) => {
-      completionLockExerciseRef.current = false
-      completionLockPauseRef.current = false
+  const startExercise = useCallback((n: number, mode: RunMode) => {
+      const holdSec = durationForExercise(exerciseDurationsRef.current, n)
+      const repeats = exerciseRepeatsRef.current[n] ?? 1
+      const includeRest = autoPauseRef.current
+      const stages = buildExerciseTimeline(n, repeats, holdSec, includeRest)
+
+      stageEnterLockRef.current = false
+      stageCompleteLockRef.current = false
+      timerReadyRef.current = false
       setRunMode(mode)
       setCurrentExercise(n)
-      setPhase('exercise')
-      setIsPreparing(true)
+      setTimelineStages(stages)
+      setCurrentStageIndex(0)
       setRemainingSec(0)
       setTimerPaused(false)
-      completedHoldsInSegmentRef.current = 0
-
-      if (includeExercisePrompt) {
-        await playWithTimerPause([exerciseStartSound(n), CHIME_SOUND])
-      } else {
-        await playWithTimerPause([CHIME_SOUND])
-      }
-      if (session !== sessionRef.current) return
-
-      setIsPreparing(false)
-      setRemainingSec(durationForExercise(exerciseDurationsRef.current, n))
     },
-    [playWithTimerPause],
+    [],
   )
 
-  const advanceAfterExercise = useCallback(
-    async (n: number, mode: RunMode, session: number) => {
-      await playWithTimerPause([CHIME_SOUND])
-      if (session !== sessionRef.current) return
-
-      if (autoPauseRef.current) {
-        await playWithTimerPause([REST_SOUND], REST_SOUND_TOTAL_SEC)
-        if (session !== sessionRef.current) return
-        setPauseKind('between-exercises')
-        setPhase('pause')
-        setRemainingSec(PAUSE_DURATION)
-        return
-      }
-
+  const finishExercise = useCallback((n: number, mode: RunMode) => {
       if (mode === 'sequence' && n < EXERCISE_COUNT) {
-        await beginExercise(n + 1, mode, session)
+        startExercise(n + 1, mode)
         return
       }
-
       stop()
     },
-    [beginExercise, playWithTimerPause, stop],
+    [startExercise, stop],
   )
 
-  const advanceAfterPause = useCallback(
-    async (
-      n: number,
-      mode: RunMode,
-      session: number,
-      currentPauseKind: PauseKind,
-    ) => {
-      completionLockExerciseRef.current = false
-      setPauseKind(null)
+  const advanceStage = useCallback(() => {
+    const stages = timelineStagesRef.current
+    const nextIndex = currentStageIndexRef.current + 1
 
-      if (currentPauseKind === 'between-repeats') {
-        setPhase('exercise')
-        setRemainingSec(durationForExercise(exerciseDurationsRef.current, n))
-        return
-      }
+    if (nextIndex >= stages.length) {
+      const n = currentExerciseRef.current
+      if (n === null) return
+      finishExercise(n, runModeRef.current)
+      return
+    }
 
-      if (mode === 'sequence' && n < EXERCISE_COUNT) {
-        await beginExercise(n + 1, mode, session, false)
-        return
-      }
+    stageEnterLockRef.current = false
+    stageCompleteLockRef.current = false
+    timerReadyRef.current = false
+    setCurrentStageIndex(nextIndex)
+    setRemainingSec(0)
+  }, [finishExercise])
 
-      stop()
-    },
-    [beginExercise, stop],
-  )
+  useEffect(() => {
+    if (remainingSec > 0) {
+      timerReadyRef.current = true
+    }
+  }, [remainingSec, currentStageIndex])
 
   const startSingle = useCallback(
     (n: number) => {
       void acquireScreenWakeLock()
       const session = sessionRef.current + 1
       sessionRef.current = session
-      void beginExercise(n, 'single', session)
+      startExercise(n, 'single')
     },
-    [beginExercise],
+    [startExercise],
   )
 
   const startSequence = useCallback(() => {
@@ -224,16 +210,48 @@ export function useExerciseTimer(
     void acquireScreenWakeLock()
     const session = sessionRef.current + 1
     sessionRef.current = session
-    void beginExercise(1, 'sequence', session)
-  }, [beginExercise])
+    startExercise(1, 'sequence')
+  }, [startExercise])
+
+  useEffect(() => {
+    if (!isActive || timelineStages.length === 0) return
+
+    const stage = timelineStages[currentStageIndex]
+    if (!stage) return
+    if (stageEnterLockRef.current) return
+    stageEnterLockRef.current = true
+
+    const session = sessionRef.current
+
+    void (async () => {
+      const hasAudio = stage.audio.length > 0
+      const hasSoundWindow = stage.minSoundSec > 0
+      if (hasAudio || hasSoundWindow) {
+        await playWithTimerPause(stage.audio, stage.minSoundSec)
+      }
+
+      if (session !== sessionRef.current) {
+        stageEnterLockRef.current = false
+        return
+      }
+
+      if (stage.timerSec > 0) {
+        setRemainingSec(stage.timerSec)
+        stageEnterLockRef.current = false
+        return
+      }
+
+      stageEnterLockRef.current = false
+      stageCompleteLockRef.current = false
+      advanceStage()
+    })()
+  }, [advanceStage, currentStageIndex, isActive, playWithTimerPause, timelineStages])
 
   useEffect(() => {
     if (
-      phase === 'idle' ||
-      isPreparing ||
+      !isActive ||
       remainingSec <= 0 ||
       timerPaused ||
-      repeatAudioPlaying ||
       soundActive
     )
       return
@@ -243,131 +261,65 @@ export function useExerciseTimer(
     }, 1000)
 
     return () => window.clearTimeout(timer)
-  }, [
-    phase,
-    isPreparing,
-    remainingSec,
-    timerPaused,
-    repeatAudioPlaying,
-    soundActive,
-  ])
+  }, [isActive, remainingSec, timerPaused, soundActive])
 
   useEffect(() => {
-    if (
-      phase !== 'exercise' ||
-      isPreparing ||
-      timerPaused ||
-      soundActive ||
-      remainingSec !== 0 ||
-      currentExercise === null
-    )
-      return
+    if (!isActive || remainingSec !== 0 || timerPaused || soundActive) return
+    if (timelineStages.length === 0) return
 
-    if (completionLockExerciseRef.current) return
-    completionLockExerciseRef.current = true
+    const stage = timelineStages[currentStageIndex]
+    if (!stage || stage.timerSec <= 0) return
+    if (!timerReadyRef.current) return
+    if (stageEnterLockRef.current) return
+    if (stageCompleteLockRef.current) return
+    stageCompleteLockRef.current = true
+    timerReadyRef.current = false
 
-    const session = sessionRef.current
-    const n = currentExercise
-    const mode = runMode
-    completedHoldsInSegmentRef.current += 1
-    const completedHolds = completedHoldsInSegmentRef.current
-    const targetRepeats = exerciseRepeatsRef.current[n] ?? 1
-
-    void (async () => {
-      if (completedHolds < targetRepeats) {
-        setRepeatAudioPlaying(true)
-        try {
-          await playWithTimerPause([REPEAT_SOUND])
-        } finally {
-          setRepeatAudioPlaying(false)
-        }
-        completionLockExerciseRef.current = false
-        if (
-          session !== sessionRef.current ||
-          timerPausedRef.current
-        ) {
-          return
-        }
-        setPauseKind('between-repeats')
-        setPhase('pause')
-        setRemainingSec(REPEAT_PAUSE_SEC)
-        return
-      }
-
-      await advanceAfterExercise(n, mode, session)
-      completionLockExerciseRef.current = false
-    })()
+    advanceStage()
   }, [
-    phase,
-    isPreparing,
+    advanceStage,
+    currentStageIndex,
+    isActive,
     remainingSec,
-    timerPaused,
     soundActive,
-    currentExercise,
-    runMode,
-    advanceAfterExercise,
-    playWithTimerPause,
-  ])
-
-  useEffect(() => {
-    if (phase !== 'pause' || timerPaused || soundActive || remainingSec !== 0)
-      return
-    if (currentExercise === null) return
-
-    if (completionLockPauseRef.current) return
-    completionLockPauseRef.current = true
-
-    const session = sessionRef.current
-    const n = currentExercise
-    const mode = runMode
-    const currentPauseKind = pauseKind
-
-    void advanceAfterPause(n, mode, session, currentPauseKind).finally(() => {
-      completionLockPauseRef.current = false
-    })
-  }, [
-    phase,
     timerPaused,
-    soundActive,
-    remainingSec,
-    currentExercise,
-    runMode,
-    pauseKind,
-    advanceAfterPause,
+    timelineStages,
   ])
 
   return {
-    phase,
     currentExercise,
     runMode,
+    timelineStages,
+    currentStageIndex,
     remainingSec,
-    isPreparing,
     timerPaused,
-    repeatAudioPlaying,
-    pauseKind,
+    soundActive,
     exercises: EXERCISE_NUMBERS,
     startSingle,
     startSequence,
     stop,
     togglePause,
-    isActive: phase !== 'idle',
+    isActive,
   }
 }
 
 export function modalPreviewExercise(
-  phase: Phase,
   runMode: RunMode,
   currentExercise: number | null,
   exerciseCount: number,
-  pauseKind: PauseKind,
+  timelineStages: TimelineStage[],
+  currentStageIndex: number,
 ): number | null {
   if (currentExercise === null) return null
+
+  const stage = timelineStages[currentStageIndex]
   if (
-    phase === 'pause' &&
-    pauseKind === 'between-exercises' &&
+    stage?.kind === 'rest' &&
     runMode === 'sequence' &&
     currentExercise < exerciseCount
-  )
+  ) {
     return currentExercise + 1
+  }
+
   return currentExercise
 }

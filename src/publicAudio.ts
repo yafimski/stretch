@@ -75,6 +75,7 @@ export function exerciseStartSound(n: number): string {
   return `/mp3/${n}.mp3`
 }
 
-export const CHIME_SOUND = '/chime.mp3'
-export const REPEAT_SOUND = '/repeat.mp3'
-export const REST_SOUND = '/rest.mp3'
+export const CHIME_SOUND = '/mp3/chime.mp3'
+export const REPEAT_SOUND = '/mp3/repeat.mp3'
+export const REST_SOUND = '/mp3/rest.mp3'
+export const BREAK_SOUND = '/mp3/break.mp3'

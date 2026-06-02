@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { exerciseImage } from './publicAudio'
 import {
   DEFAULT_EXERCISE_DURATIONS,
@@ -6,8 +6,6 @@ import {
   modalPreviewExercise,
   useExerciseTimer,
   type Duration,
-  type PauseKind,
-  type Phase,
   type RepeatCount,
 } from './useExerciseTimer'
 import { useScreenWakeLock } from './useScreenWakeLock'
@@ -15,36 +13,6 @@ import './App.css'
 
 const DURATIONS: Duration[] = [10, 20, 40]
 const REPEAT_COUNTS: RepeatCount[] = [1, 2, 3, 4]
-
-function modalSecondsLabel(
-  phase: Phase,
-  isPreparing: boolean,
-  remainingSec: number,
-  currentExercise: number | null,
-  exerciseDurations: Record<number, Duration>,
-): number {
-  if (currentExercise === null) return remainingSec
-
-  const holdSecs = exerciseDurations[currentExercise] ?? 30
-
-  if (phase === 'pause') return remainingSec
-  if (phase === 'exercise' && isPreparing) return holdSecs
-  if (phase === 'exercise' && !isPreparing && remainingSec > 0)
-    return remainingSec
-  if (phase === 'exercise' && !isPreparing) return holdSecs
-  return remainingSec
-}
-
-function phaseLabel(
-  phase: Phase,
-  isPreparing: boolean,
-  pauseKind: PauseKind,
-): string {
-  if (phase === 'pause' && pauseKind === 'between-repeats') return 'Pause'
-  if (phase === 'pause') return 'Rest'
-  if (isPreparing) return 'Starting'
-  return 'Hold'
-}
 
 function App() {
   const [exerciseDurations, setExerciseDurations] = useState<
@@ -56,14 +24,13 @@ function App() {
   const [autoPause, setAutoPause] = useState(true)
 
   const {
-    phase,
     runMode,
     currentExercise,
+    timelineStages,
+    currentStageIndex,
     remainingSec,
-    isPreparing,
     timerPaused,
-    repeatAudioPlaying,
-    pauseKind,
+    soundActive,
     exercises,
     startSingle,
     startSequence,
@@ -72,17 +39,16 @@ function App() {
     isActive,
   } = useExerciseTimer(exerciseDurations, exerciseRepeats, autoPause)
 
+  const currentStage = timelineStages[currentStageIndex]
   const showTimerControls =
-    !isPreparing &&
-    !repeatAudioPlaying &&
-    (phase === 'exercise' || phase === 'pause')
+    isActive && !soundActive && remainingSec > 0
 
   const previewNum = modalPreviewExercise(
-    phase,
     runMode,
     currentExercise,
     exercises.length,
-    pauseKind,
+    timelineStages,
+    currentStageIndex,
   )
 
   useScreenWakeLock(isActive)
@@ -183,10 +149,6 @@ function App() {
               ×
             </button>
 
-            {phase === 'pause' && pauseKind === 'between-exercises' ? (
-              <h2 className="modal-coming-up">Coming Up...</h2>
-            ) : null}
-
             {showTimerControls ? (
               <button
                 type="button"
@@ -221,16 +183,48 @@ function App() {
               </button>
             ) : null}
 
-            <p className="modal-countdown">
-              {phaseLabel(phase, isPreparing, pauseKind)} ·{' '}
-              {modalSecondsLabel(
-                phase,
-                isPreparing,
-                remainingSec,
-                currentExercise,
-                exerciseDurations,
-              )}
-              s
+            <div
+              className="modal-timeline"
+              aria-label="Exercise flow"
+            >
+              {timelineStages.map((stage, index) => (
+                <Fragment key={stage.id}>
+                  {index > 0 ? (
+                    <span className="modal-timeline-arrow" aria-hidden>
+                      →
+                    </span>
+                  ) : null}
+                  <span
+                    className={`modal-timeline-step${
+                      index === currentStageIndex
+                        ? ' modal-timeline-step-active'
+                        : ''
+                    }${
+                      index < currentStageIndex
+                        ? ' modal-timeline-step-done'
+                        : ''
+                    }`}
+                  >
+                    {stage.label}
+                  </span>
+                </Fragment>
+              ))}
+            </div>
+
+            <p className="modal-timer" aria-live="polite">
+              {remainingSec > 0 ? (
+                <>
+                  <span className="modal-timer-value">{remainingSec}</span>
+                  <span className="modal-timer-unit">s</span>
+                </>
+              ) : soundActive ? (
+                <span className="modal-timer-wait">…</span>
+              ) : currentStage?.timerSec ? (
+                <>
+                  <span className="modal-timer-value">{currentStage.timerSec}</span>
+                  <span className="modal-timer-unit">s</span>
+                </>
+              ) : null}
             </p>
 
             <div className="modal-image-wrap">
