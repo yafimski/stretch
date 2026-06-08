@@ -1,27 +1,27 @@
-import { Fragment, useState } from 'react'
-import { exerciseImage } from './publicAudio'
+import { Fragment, useState } from "react";
+import { exerciseImage } from "./publicAudio";
 import {
   DEFAULT_EXERCISE_DURATIONS,
   DEFAULT_EXERCISE_REPEATS,
   modalPreviewExercise,
   useExerciseTimer,
   type Duration,
-  type RepeatCount,
-} from './useExerciseTimer'
-import { useScreenWakeLock } from './useScreenWakeLock'
-import './App.css'
+  type RepeatCount
+} from "./useExerciseTimer";
+import { useScreenWakeLock } from "./useScreenWakeLock";
+import "./App.css";
 
-const DURATIONS: Duration[] = [10, 20, 40]
-const REPEAT_COUNTS: RepeatCount[] = [1, 2, 3, 4]
+const DURATIONS: Duration[] = [10, 20, 40];
+const REPEAT_COUNTS: RepeatCount[] = [1, 2, 3, 4];
 
 function App() {
-  const [exerciseDurations, setExerciseDurations] = useState<
-    Record<number, Duration>
-  >(() => ({ ...DEFAULT_EXERCISE_DURATIONS }))
-  const [exerciseRepeats, setExerciseRepeats] = useState<
-    Record<number, RepeatCount>
-  >(() => ({ ...DEFAULT_EXERCISE_REPEATS }))
-  const [autoPause, setAutoPause] = useState(true)
+  const [exerciseDurations, setExerciseDurations] = useState<Record<number, Duration>>(() => ({
+    DEFAULT_EXERCISE_DURATIONS
+  }));
+  const [exerciseRepeats, setExerciseRepeats] = useState<Record<number, RepeatCount>>(() => ({
+    ...DEFAULT_EXERCISE_REPEATS
+  }));
+  const [autoPause, setAutoPause] = useState(true);
 
   const {
     runMode,
@@ -36,32 +36,26 @@ function App() {
     startSequence,
     stop,
     togglePause,
-    isActive,
-  } = useExerciseTimer(exerciseDurations, exerciseRepeats, autoPause)
+    isActive
+  } = useExerciseTimer(exerciseDurations, exerciseRepeats, autoPause);
 
-  const currentStage = timelineStages[currentStageIndex]
-  const showTimerControls =
-    isActive && !soundActive && remainingSec > 0
+  const currentStage = timelineStages[currentStageIndex];
+  const showTimerControls = isActive && !soundActive && remainingSec > 0;
 
   const previewNum = modalPreviewExercise(
     runMode,
     currentExercise,
     exercises.length,
     timelineStages,
-    currentStageIndex,
-  )
+    currentStageIndex
+  );
 
-  useScreenWakeLock(isActive)
+  useScreenWakeLock(isActive);
 
   return (
     <div className="app">
       <header className="header">
-        <button
-          type="button"
-          className="begin-btn"
-          onClick={startSequence}
-          disabled={isActive}
-        >
+        <button type="button" className="begin-btn" onClick={startSequence} disabled={isActive}>
           Begin
         </button>
       </header>
@@ -74,10 +68,10 @@ function App() {
               className="grid-card-repeat-pill"
               onClick={() =>
                 setExerciseRepeats((prev) => {
-                  const current = prev[n] ?? 1
-                  const idx = REPEAT_COUNTS.indexOf(current)
-                  const next = REPEAT_COUNTS[(idx + 1) % REPEAT_COUNTS.length]
-                  return { ...prev, [n]: next }
+                  const current = prev[n] ?? 1;
+                  const idx = REPEAT_COUNTS.indexOf(current);
+                  const next = REPEAT_COUNTS[(idx + 1) % REPEAT_COUNTS.length];
+                  return { ...prev, [n]: next };
                 })
               }
               aria-label={`Repeats for exercise ${n}: ${exerciseRepeats[n] ?? 1}. Tap to cycle`}
@@ -93,21 +87,15 @@ function App() {
             >
               <img src={exerciseImage(n)} alt={`Exercise ${n}`} />
             </button>
-            <div
-              className="grid-card-durations"
-              role="radiogroup"
-              aria-label={`Hold duration for exercise ${n}`}
-            >
+            <div className="grid-card-durations" role="radiogroup" aria-label={`Hold duration for exercise ${n}`}>
               {DURATIONS.map((value) => (
                 <button
                   key={value}
                   type="button"
-                  className={`duration-btn${exerciseDurations[n] === value ? ' duration-btn-active' : ''}`}
+                  className={`duration-btn${exerciseDurations[n] === value ? " duration-btn-active" : ""}`}
                   role="radio"
                   aria-checked={exerciseDurations[n] === value}
-                  onClick={() =>
-                    setExerciseDurations((prev) => ({ ...prev, [n]: value }))
-                  }
+                  onClick={() => setExerciseDurations((prev) => ({ ...prev, [n]: value }))}
                   disabled={isActive}
                 >
                   {value}s
@@ -119,7 +107,7 @@ function App() {
       </section>
 
       <section className="settings" aria-label="Settings">
-        <label className={`auto-pause${autoPause ? ' auto-pause-on' : ''}`}>
+        <label className={`auto-pause${autoPause ? " auto-pause-on" : ""}`}>
           <span className="auto-pause-text">
             <span className="auto-pause-title">Auto pause</span>
             <span className="auto-pause-desc">15 second rest between exercises</span>
@@ -140,12 +128,7 @@ function App() {
       {isActive && currentExercise !== null && previewNum !== null && (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal">
-            <button
-              type="button"
-              className="modal-close"
-              onClick={stop}
-              aria-label="Close"
-            >
+            <button type="button" className="modal-close" onClick={stop} aria-label="Close">
               ×
             </button>
 
@@ -154,8 +137,8 @@ function App() {
                 type="button"
                 className="modal-play-pause"
                 onClick={togglePause}
-                aria-label={timerPaused ? 'Resume timer' : 'Pause timer'}
-                title={timerPaused ? 'Resume' : 'Pause'}
+                aria-label={timerPaused ? "Resume timer" : "Pause timer"}
+                title={timerPaused ? "Resume" : "Pause"}
               >
                 {timerPaused ? (
                   <svg
@@ -183,10 +166,7 @@ function App() {
               </button>
             ) : null}
 
-            <div
-              className="modal-timeline"
-              aria-label="Exercise flow"
-            >
+            <div className="modal-timeline" aria-label="Exercise flow">
               {timelineStages.map((stage, index) => (
                 <Fragment key={stage.id}>
                   {index > 0 ? (
@@ -195,14 +175,8 @@ function App() {
                     </span>
                   ) : null}
                   <span
-                    className={`modal-timeline-step${
-                      index === currentStageIndex
-                        ? ' modal-timeline-step-active'
-                        : ''
-                    }${
-                      index < currentStageIndex
-                        ? ' modal-timeline-step-done'
-                        : ''
+                    className={`modal-timeline-step${index === currentStageIndex ? " modal-timeline-step-active" : ""}${
+                      index < currentStageIndex ? " modal-timeline-step-done" : ""
                     }`}
                   >
                     {stage.label}
@@ -228,17 +202,14 @@ function App() {
             </p>
 
             <div className="modal-image-wrap">
-              <img
-                src={exerciseImage(previewNum)}
-                alt={`Exercise ${previewNum}`}
-                className="modal-image"
-              />
+              <img src={exerciseImage(previewNum)} alt={`Exercise ${previewNum}`} className="modal-image" />
             </div>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
+
