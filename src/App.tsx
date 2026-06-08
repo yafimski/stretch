@@ -16,7 +16,7 @@ const REPEAT_COUNTS: RepeatCount[] = [1, 2, 3, 4];
 
 function App() {
   const [exerciseDurations, setExerciseDurations] = useState<Record<number, Duration>>(() => ({
-    DEFAULT_EXERCISE_DURATIONS
+    ...DEFAULT_EXERCISE_DURATIONS
   }));
   const [exerciseRepeats, setExerciseRepeats] = useState<Record<number, RepeatCount>>(() => ({
     ...DEFAULT_EXERCISE_REPEATS

@@ -8,7 +8,7 @@ export type { RepeatCount } from "./exerciseTimeline";
 export type RunMode = "single" | "sequence";
 
 /** Default seconds per exercise; override per-number in UI. */
-export const DEFAULT_EXERCISE_DURATIONS = {
+export const DEFAULT_EXERCISE_DURATIONS: Record<number, Duration> = {
   1: 20,
   2: 20,
   3: 20,
@@ -19,10 +19,6 @@ export const DEFAULT_EXERCISE_DURATIONS = {
   8: 10,
   9: 40
 };
-
-function durationForExercise(map: Record<number, Duration>, n: number): Duration {
-  return map[n] ?? 20;
-}
 
 /** Default repeat counts per exercise; can be changed from UI. */
 const DEFAULT_REPEAT_OVERRIDES: Partial<Record<number, RepeatCount>> = {
@@ -128,7 +124,7 @@ export function useExerciseTimer(
   }, []);
 
   const startExercise = useCallback((n: number, mode: RunMode) => {
-    const holdSec = durationForExercise(exerciseDurationsRef.current, n);
+    const holdSec = DEFAULT_EXERCISE_DURATIONS[n];
     const repeats = exerciseRepeatsRef.current[n] ?? 1;
     const includeRest = autoPauseRef.current;
     const stages = buildExerciseTimeline(n, repeats, holdSec, includeRest);
