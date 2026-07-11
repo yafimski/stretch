@@ -124,7 +124,7 @@ export function useExerciseTimer(
   }, []);
 
   const startExercise = useCallback((n: number, mode: RunMode) => {
-    const holdSec = DEFAULT_EXERCISE_DURATIONS[n];
+    const holdSec = exerciseDurationsRef.current[n] ?? DEFAULT_EXERCISE_DURATIONS[n];
     const repeats = exerciseRepeatsRef.current[n] ?? 1;
     const includeRest = autoPauseRef.current;
     const stages = buildExerciseTimeline(n, repeats, holdSec, includeRest);
